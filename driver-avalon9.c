@@ -1992,7 +1992,7 @@ static int64_t avalon9_scanhash(struct thr_info *thr)
 
 	/* Step 1: Stop polling and detach the device if there is no stratum in 3 minutes, network is down */
 	cgtime(&current);
-	if (tdiff(&current, &(info->last_stratum)) > 180.0) {
+	if (tdiff(&current, &(info->last_stratum)) > 900.0) {
 		for (i = 1; i < AVA9_DEFAULT_MODULARS; i++) {
 			if (!info->enable[i])
 				continue;
