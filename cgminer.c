@@ -874,6 +874,11 @@ static char *set_int_0_to_100(const char *arg, int *i)
 	return set_int_range(arg, i, 0, 100);
 }
 
+static char *set_int_0_to_110(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 0, 110);
+}
+
 static char *set_int_0_to_255(const char *arg, int *i)
 {
         return set_int_range(arg, i, 0, 255);
@@ -1527,7 +1532,7 @@ static struct opt_table opt_config_table[] = {
 		     set_avalon8_fan, NULL, &opt_set_avalon8_fan,
 		     "Set Avalon8 target fan speed, range:[0, 100], step: 1, example: 0-100"),
 	OPT_WITH_ARG("--avalon8-temp",
-		     set_int_0_to_100, opt_show_intval, &opt_avalon8_temp_target,
+		     set_int_0_to_110, opt_show_intval, &opt_avalon8_temp_target,
 		     "Set Avalon8 target temperature, range:[0, 100]"),
 	OPT_WITH_ARG("--avalon8-polling-delay",
 		     set_int_1_to_65535, opt_show_intval, &opt_avalon8_polling_delay,
