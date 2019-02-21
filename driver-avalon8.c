@@ -814,6 +814,12 @@ static int decode_pkg(struct cgpu_info *avalon8, struct avalon8_ret *ar, int mod
 		applog(LOG_DEBUG, "%s-%d-%d: AVA8_P_STATUS_OC", avalon8->drv->name, avalon8->device_id, modular_id);
 		info->overclocking_info[0] = ar->data[0];
 		break;
+	case AVA8_P_STATUS_MINER_EN:
+		applog(LOG_DEBUG, "%s-%d-%d: AVA8_P_STATUS_MINER_EN", avalon8->drv->name, avalon8->device_id, modular_id);
+		for (i = 0; i < info->miner_count[modular_id]; i++) {
+			info->set_miner_enable[modular_id][i] = ar->data[i];
+		}
+		break;
 	default:
 		applog(LOG_DEBUG, "%s-%d-%d: Unknown response %x", avalon8->drv->name, avalon8->device_id, modular_id, ar->type);
 		break;
@@ -1531,6 +1537,8 @@ static void detect_modules(struct cgpu_info *avalon8)
 				info->set_asic_otp[i][j] = 0; /* default asic: 0 */
 			else
 				info->set_asic_otp[i][j] = opt_avalon8_asic_otp;
+
+			info->set_miner_enable[i][j] = 1; /* default to enable status */
 		}
 
 		info->freq_mode[i] = AVA8_FREQ_INIT_MODE;
@@ -1963,6 +1971,32 @@ static void avalon8_set_ss_param(struct cgpu_info *avalon8, int addr)
 		avalon8_iic_xfer_pkg(avalon8, addr, &send_pkg, NULL);
 }
 
+static void avalon8_set_miner_enable(struct cgpu_info *avalon8, int addr, unsigned int miner_enable[])
+{
+	struct avalon8_info *info = avalon8->device_data;
+	struct avalon8_pkg send_pkg;
+	uint32_t tmp;
+	uint8_t i;
+
+	memset(send_pkg.data, 0, AVA8_P_DATA_LEN);
+
+	/* NOTE: miner_count should <= 8 */
+	for (i = 0; i < info->miner_count[addr]; i++) {
+		tmp = be32toh(miner_enable[i]);
+		memcpy(send_pkg.data + i * 4, &tmp, 4);
+	}
+	applog(LOG_DEBUG, "%s-%d-%d: avalon8 set miner enable value [%d,%d,%d,%d]",
+			avalon8->drv->name, avalon8->device_id, addr,
+			miner_enable[0],miner_enable[1],miner_enable[2],miner_enable[3]);
+
+	/* Package the data */
+	avalon8_init_pkg(&send_pkg, AVA8_P_SET_MINER_EN, 1, 1);
+	if (addr == AVA8_MODULE_BROADCAST)
+		avalon8_send_bc_pkgs(avalon8, &send_pkg);
+	else
+		avalon8_iic_xfer_pkg(avalon8, addr, &send_pkg, NULL);
+}
+
 static void avalon8_stratum_finish(struct cgpu_info *avalon8)
 {
 	struct avalon8_pkg send_pkg;
@@ -2348,6 +2382,13 @@ static struct api_data *avalon8_api_stats(struct cgpu_info *avalon8)
 				}
 				statbuf[strlen(statbuf) - 1] = ']';
 			}
+
+			strcat(statbuf, " ME[");
+			for (j = 0; j < info->miner_count[i]; j++) {
+				sprintf(buf, "%d ", info->set_miner_enable[i][j]);
+				strcat(statbuf, buf);
+			}
+			statbuf[strlen(statbuf) - 1] = ']';
 		}
 
 		mhsmm = avalon8_hash_cal(avalon8, i);
@@ -2759,6 +2800,74 @@ char *set_avalon8_overclocking_info(struct cgpu_info *avalon8, char *arg)
 	return NULL;
 }
 
+/* format: miner-en, value[-addr[-miner]]
+ * value: 0 means disable miner, 1 means enable miner
+ * addr[0, AVA8_DEFAULT_MODULARS - 1], 0 means all modulars
+ * miner[0, miner_count], 0 means all miners
+ */
+char *set_avalon8_miner_enable(struct cgpu_info *avalon8, char *arg)
+{
+	struct avalon8_info *info = avalon8->device_data;
+	int val;
+	unsigned int addr = 0, i, j;
+	uint32_t miner_id = 0;
+
+	if (!(*arg))
+		return NULL;
+
+	sscanf(arg, "%d-%d-%d", &val, &addr, &miner_id);
+
+	if ((val != 0) && (val != 1))
+		return "Invalid value passed to set_avalon8_miner_enable";
+
+	if (addr >= AVA8_DEFAULT_MODULARS) {
+		applog(LOG_ERR, "invalid modular index: %d, valid range 0-%d", addr, (AVA8_DEFAULT_MODULARS - 1));
+		return "Invalid modular index to set_avalon8_miner_enable";
+	}
+
+	if (!addr) {
+		for (i = 1; i < AVA8_DEFAULT_MODULARS; i++) {
+			if (!info->enable[i])
+				continue;
+
+			if (miner_id > info->miner_count[i]) {
+				applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[i]);
+				return "Invalid miner index to set_avalon8_miner_enable";
+			}
+
+			if (miner_id)
+				info->set_miner_enable[i][miner_id - 1] = val;
+			else {
+				for (j = 0; j < info->miner_count[i]; j++)
+					info->set_miner_enable[i][j] = val;
+			}
+			avalon8_set_miner_enable(avalon8, i, info->set_miner_enable[i]);
+		}
+	} else {
+		if (!info->enable[addr]) {
+			applog(LOG_ERR, "Disabled modular:%d", addr);
+			return "Disabled modular to set_avalon8_miner_enable";
+		}
+
+		if (miner_id > info->miner_count[addr]) {
+			applog(LOG_ERR, "invalid miner index: %d, valid range 0-%d", miner_id, info->miner_count[addr]);
+			return "Invalid miner index to set_avalon8_miner_enable";
+		}
+
+		if (miner_id)
+			info->set_miner_enable[addr][miner_id - 1] = val;
+		else {
+			for (j = 0; j < info->miner_count[addr]; j++)
+				info->set_miner_enable[addr][j] = val;
+		}
+		avalon8_set_miner_enable(avalon8, addr, info->set_miner_enable[addr]);
+	}
+
+	applog(LOG_NOTICE, "%s-%d: Update miner shutting control value to %d", avalon8->drv->name, avalon8->device_id, val);
+
+	return NULL;
+}
+
 static char *avalon8_set_device(struct cgpu_info *avalon8, char *option, char *setting, char *replybuf)
 {
 	unsigned int val;
@@ -2896,6 +3005,15 @@ static char *avalon8_set_device(struct cgpu_info *avalon8, char *option, char *s
 		}
 
 		return set_avalon8_overclocking_info(avalon8, setting);
+	}
+
+	if (strcasecmp(option, "miner-en") == 0) {
+		if (!setting || !*setting) {
+			sprintf(replybuf, "missing miner-en value");
+			return replybuf;
+		}
+
+		return set_avalon8_miner_enable(avalon8, setting);
 	}
 
 	sprintf(replybuf, "Unknown option: %s", option);

@@ -160,6 +160,8 @@
 /* 0x27 reserved */
 #define AVA8_P_SET_FAC			0x28
 #define AVA8_P_SET_OC			0x29
+#define AVA8_P_SET_MINER_EN		0x2A
+
 
 /* Have to send with I2C address */
 #define AVA8_P_POLLING	0x30
@@ -183,6 +185,7 @@
 #define AVA8_P_STATUS_OC		0x4e
 #define AVA8_P_STATUS_OTP		0x4f
 #define AVA8_P_SET_ASIC_OTP		0x50
+#define AVA8_P_STATUS_MINER_EN		0x51
 
 #define AVA8_MODULE_BROADCAST	0
 /* End of avalon8 protocol package type */
@@ -336,6 +339,8 @@ struct avalon8_info {
 	uint16_t vout_adc_ratio[AVA8_DEFAULT_MODULARS];
 
 	bool conn_overloaded;
+
+	int set_miner_enable[AVA8_DEFAULT_MODULARS][AVA8_DEFAULT_MINER_CNT];
 };
 
 struct avalon8_iic_info {
