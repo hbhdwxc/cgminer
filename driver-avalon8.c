@@ -178,12 +178,12 @@ struct avalon8_dev_description avalon8_dev_table[] = {
 		26,
 		AVA8_MM851_VIN_ADC_RATIO,
 		AVA8_MM851_VOUT_ADC_RATIO,
-		5,
+		0,
 		{
 			AVA8_DEFAULT_FREQUENCY_0M,
 			AVA8_DEFAULT_FREQUENCY_0M,
 			AVA8_DEFAULT_FREQUENCY_0M,
-			AVA8_DEFAULT_FREQUENCY_850M
+			AVA8_DEFAULT_FREQUENCY_750M
 		}
 	}
 };
@@ -1410,6 +1410,7 @@ static bool avalon8_prepare(struct thr_info *thr)
 	cgtime(&(info->last_fan_adj));
 	cgtime(&info->last_stratum);
 	cgtime(&info->last_detect);
+	cgtime(&info->last_volt_adjusted);
 
 	cglock_init(&info->update_lock);
 	cglock_init(&info->pool0.data_lock);
@@ -1535,6 +1536,8 @@ static void detect_modules(struct cgpu_info *avalon8)
 
 		info->freq_mode[i] = AVA8_FREQ_INIT_MODE;
 		memset(info->get_pll[i], 0, sizeof(uint32_t) * info->miner_count[i] * AVA8_DEFAULT_PLL_CNT);
+
+		info->volt_adjusted_cnt[i] = 0;
 
 		info->led_indicator[i] = 0;
 		info->cutoff[i] = 0;
@@ -2047,6 +2050,9 @@ static int64_t avalon8_scanhash(struct thr_info *thr)
 	int temp_max;
 	int64_t ret;
 	bool update_settings = false;
+	bool do_volt_adjust = false;
+	int volt_level_vlaue = 0;;
+	double wu = 0.0;
 
 	if ((info->connecter == AVA8_CONNECTER_AUC) &&
 		(unlikely(avalon8->usbinfo.nodev))) {
@@ -2065,6 +2071,11 @@ static int64_t avalon8_scanhash(struct thr_info *thr)
 		}
 		info->mm_count = 0;
 		return 0;
+	}
+
+	if (tdiff(&current, &info->last_volt_adjusted) >= 1200.0) {
+		cgtime(&info->last_volt_adjusted);
+		do_volt_adjust = true;
 	}
 
 	/* Step 2: Try to detect new modules */
@@ -2166,6 +2177,27 @@ static int64_t avalon8_scanhash(struct thr_info *thr)
 			}
 			avalon8_set_finish(avalon8, i);
 			cg_wunlock(&info->update_lock);
+		} else {
+			if ((info->volt_adjusted_cnt[i] < AVA8_DEFAULT_VOLT_ADJUST_CNT) && do_volt_adjust) {
+				wu = info->diff1[i] / tdiff(&current, &(info->elapsed[i])) * 60.0;
+				if (wu < AVA8_DEFAULT_VOLT_ADJUST_WU) {
+					for (j = 0; j < info->miner_count[i]; j++) {
+						volt_level_vlaue = info->set_voltage_level[i][j] + AVA8_DEFAULT_VOLT_ADJUST_STEP;
+						if (volt_level_vlaue < AVA8_DEFAULT_VOLTAGE_LEVEL_MIN)
+							volt_level_vlaue = AVA8_DEFAULT_VOLTAGE_LEVEL_MIN;
+						else if (volt_level_vlaue > AVA8_DEFAULT_VOLTAGE_LEVEL_MAX)
+							volt_level_vlaue = AVA8_DEFAULT_VOLTAGE_LEVEL_MAX;
+
+						info->set_voltage_level[i][j] = volt_level_vlaue;
+					}
+
+					cg_wlock(&info->update_lock);
+					avalon8_set_voltage_level(avalon8, i, info->set_voltage_level[i]);
+					cg_wunlock(&info->update_lock);
+
+					info->volt_adjusted_cnt[i]++;
+				}
+			}
 		}
 	}
 
