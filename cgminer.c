@@ -1603,7 +1603,7 @@ static struct opt_table opt_config_table[] = {
 		     "Set Avalon8 adjust control params"),
 	OPT_WITH_ARG("--avalon8-power-mode",
 		     set_int_0_to_5, opt_show_intval, &opt_avalon8_power_mode_sel,
-		     "Set Avalon8 power mode, range 0-5. 0: HighPerformance, 1: Balanced, 2: Low:."),
+		     "Set Avalon8 power mode, range 0-5. 0:HighPerformance, 1:Balanced, 2:Low, 3:Compatiable."),
 #endif
 #ifdef USE_AVALON_MINER
 	OPT_WITH_CBARG("--avalonm-voltage",
